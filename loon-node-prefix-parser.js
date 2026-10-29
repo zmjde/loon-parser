@@ -535,6 +535,134 @@
     return name + '=' + out.join(',');
   }
 
+  /* ==================== 6.5 Quantumult X 格式 -> Loon ==================== */
+  var QX_LINE = /^(shadowsocks|vmess|vless|trojan|http|https|socks5|ssr)\s*=\s*[^,\s]+/im;
+
+  function isQX(text) { return QX_LINE.test(text); }
+
+  function parseKV(s) {
+    var o = {};
+    if (!s) return o;
+    s.split(/,\s*(?=[a-z0-9_.-]+\s*=)/i).forEach(function (p) {
+      var i = p.indexOf('=');
+      if (i > 0) o[p.slice(0, i).trim().toLowerCase()] = p.slice(i + 1).trim();
+    });
+    return o;
+  }
+
+  function parseQX(text) {
+    var out = [];
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var t = lines[i].trim();
+      if (!t || t.charAt(0) === '#' || t.charAt(0) === ';' || t.charAt(0) === '/') continue;
+      var m = t.match(/^([a-z0-9]+)\s*=\s*([^,]+)\s*(?:,\s*([\s\S]*))?$/i);
+      if (!m) continue;
+      var ln = null;
+      try { ln = qxToLoon(m[1].toLowerCase(), m[2].trim(), parseKV(m[3] || '')); } catch (e) { ln = null; }
+      if (ln) out.push(ln);
+    }
+    return out;
+  }
+
+  function qxToLoon(type, hostport, kv) {
+    var hp = splitHostPort(hostport);
+    var server = hp[0], port = hp[1];
+    if (!server || !port) return null;
+    var name = unq(kv.tag) || (server + ':' + port);
+
+    var common = [];
+    if (truthy(kv['udp-relay'])) common.push('udp=true');
+    if (String(kv['tls-verification']) === 'false') common.push('skip-cert-verify=true');
+    var overTls = truthy(kv['over-tls']);
+    var obfs = unq(kv.obfs || '');
+    var wsPath = unq(kv['obfs-uri'] || '');
+    var wsHost = unq(kv['obfs-host'] || '');
+    var sni = unq(kv['tls-host'] || kv.sni || '');
+
+    if (type === 'shadowsocks') {
+      var a = ['Shadowsocks', server, port, unq(kv.method), '"' + unq(kv.password) + '"'];
+      if (obfs === 'http' || obfs === 'tls') {
+        a.push('obfs-name=' + obfs);
+        if (wsHost) a.push('obfs-host=' + wsHost);
+        if (wsPath) a.push('obfs-uri=' + wsPath);
+      }
+      // obfs=ws：Loon 的 Shadowsocks 不支持 ws 混淆，按普通 ss 输出（可能连不上）
+      return name + '=' + a.concat(common).join(',');
+    }
+
+    if (type === 'ssr') {
+      var r = ['ShadowsocksR', server, port, unq(kv.method), '"' + unq(kv.password) + '"'];
+      if (kv.protocol) r.push('protocol=' + unq(kv.protocol));
+      if (kv['protocol-param']) r.push('protocol-param=' + unq(kv['protocol-param']));
+      if (kv.obfs) r.push('obfs=' + unq(kv.obfs));
+      if (kv['obfs-param']) r.push('obfs-param=' + unq(kv['obfs-param']));
+      return name + '=' + r.concat(common).join(',');
+    }
+
+    if (type === 'vmess') {
+      var c = ['VMess', server, port, unq(kv.method || 'none'), '"' + unq(kv.password) + '"', 'alterId=' + (kv.aid || kv.alterid || 0)];
+      if (obfs === 'ws') {
+        c.push('transport=ws');
+        if (wsPath) c.push('path=' + wsPath);
+        if (wsHost) c.push('host=' + wsHost);
+      } else if (obfs === 'http') {
+        c.push('transport=h2');
+        if (wsPath) c.push('path=' + wsPath);
+        if (wsHost) c.push('host=' + wsHost);
+      } else {
+        c.push('transport=tcp');
+      }
+      if (overTls) c.push('over-tls=true');
+      if (sni) c.push('sni=' + sni);
+      return name + '=' + c.concat(common).join(',');
+    }
+
+    if (type === 'vless') {
+      var d = ['VLESS', server, port, '"' + unq(kv.password || kv.uuid) + '"'];
+      if (obfs === 'ws') {
+        d.push('transport=ws');
+        if (wsPath) d.push('path=' + wsPath);
+        if (wsHost) d.push('host=' + wsHost);
+      } else if (obfs === 'grpc') {
+        d.push('transport=grpc');
+        if (wsPath) d.push('grpc-service-name=' + wsPath);
+      } else {
+        d.push('transport=tcp');
+      }
+      if (kv.flow) d.push('flow=' + unq(kv.flow));
+      if (kv['public-key']) d.push('public-key="' + unq(kv['public-key']) + '"');
+      if (kv['short-id']) d.push('short-id=' + unq(kv['short-id']));
+      if (overTls) d.push('over-tls=true');
+      if (sni) d.push('sni=' + sni);
+      return name + '=' + d.concat(common).join(',');
+    }
+
+    if (type === 'trojan') {
+      var e;
+      if (obfs === 'ws') {
+        e = ['Trojan', server, port, '"' + unq(kv.password) + '"', 'transport=ws'];
+        if (wsPath) e.push('path=' + wsPath);
+        if (wsHost) e.push('host=' + wsHost);
+      } else {
+        e = ['Trojan', server, port, '"' + unq(kv.password) + '"', 'transport=tcp'];
+      }
+      if (sni) e.push('sni=' + sni);
+      return name + '=' + e.concat(common).join(',');
+    }
+
+    if (type === 'http' || type === 'https' || type === 'socks5') {
+      var h = [type === 'socks5' ? 'socks5' : 'http', server, port];
+      if (kv.username) h.push(unq(kv.username));
+      if (kv.password) h.push('"' + unq(kv.password) + '"');
+      if (type === 'https' || overTls) h.push('over-tls=true');
+      if (sni) h.push('sni=' + sni);
+      return name + '=' + h.concat(common).join(',');
+    }
+
+    return null;
+  }
+
   /* ==================== 7. URI -> Loon ==================== */
   function parseQuery(qs) {
     var o = {};
@@ -734,38 +862,51 @@
     return out;
   }
 
-  function transform(raw) {
-    var text = String(raw || '').replace(/^\uFEFF/, '');
-    if (!text.trim()) return text;
+  function tryStructured(text) {
     var t = text.trim();
-
-    // JSON：sing-box / v2ray
     if (t.charAt(0) === '{') {
       var obj = null;
       try { obj = JSON.parse(t); } catch (e) { obj = null; }
       if (obj) {
         var res = null;
-        if (isSingBox(obj)) res = parseSingBox(obj);
-        else if (isV2ray(obj)) res = parseV2ray(obj);
+        try {
+          if (isSingBox(obj)) res = parseSingBox(obj);
+          else if (isV2ray(obj)) res = parseV2ray(obj);
+        } catch (e) { res = null; }
         if (res && res.length) return dedupe(res.map(addPrefix)).join('\n');
-        return text;
       }
+      return null;
     }
-
-    // Clash YAML
     if (/^\s*proxies\s*:/m.test(text)) {
-      var y = parseYaml(text);
+      var y = null;
+      try { y = parseYaml(text); } catch (e) { y = null; }
       if (y && y.length) return dedupe(y.map(addPrefix)).join('\n');
-      return text;
+      return null;
     }
+    if (isQX(text)) {
+      var q = null;
+      try { q = parseQX(text); } catch (e) { q = null; }
+      if (q && q.length) return dedupe(q.map(addPrefix)).join('\n');
+      return null;
+    }
+    return null;
+  }
 
-    // Base64
+  function transform(raw) {
+    var text = String(raw || '').replace(/^\uFEFF/, '');
+    if (!text.trim()) return text;
+
+    var s1 = tryStructured(text);
+    if (s1 !== null) return s1;
+
     var hasUri = /:\/\//.test(text);
     var hasLoon = /\S\s*=\s*(shadowsocks|vmess|vless|trojan|anytls|hysteria2?|ss|socks5)\b/i.test(text);
     if (!hasUri && !hasLoon) {
       var dec = b64(text);
-      if (dec && (/:\/\//.test(dec) || /\S\s*=\s*(shadowsocks|vmess|vless|trojan|anytls|hysteria2?|ss|socks5)\b/i.test(dec))) {
-        text = dec;
+      if (dec) {
+        var s2 = tryStructured(dec);
+        if (s2 !== null) return s2;
+        if (/:\/\//.test(dec) || /\S\s*=\s*(shadowsocks|vmess|vless|trojan|anytls|hysteria2?|ss|socks5)\b/i.test(dec)) text = dec;
       }
     }
 
