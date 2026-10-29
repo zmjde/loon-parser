@@ -20,13 +20,36 @@
   'use strict';
 
   // ---- 1. 取前缀参数 ----
+  // 兼容三种写法：
+  //   argument="【1】"            （纯文本）
+  //   argument="prefix=【1】"      （Loon 文档推荐的 key=value 形式）
+  //   argument 被解析成对象 {prefix: "【1】"}
   var PREFIX = (function () {
     var a = (typeof $argument !== 'undefined') ? $argument : '';
-    if (typeof a === 'string') return a.trim();
+
     if (a && typeof a === 'object') {
       return String(a.prefix || a.name || a.p || '').trim();
     }
-    return '';
+
+    var raw = String(a == null ? '' : a).trim();
+    if (!raw) return '';
+
+    // key=value[&key=value] 形式
+    var m = raw.match(/(?:^|&)prefix=([^&]*)/i);
+    if (m) {
+      try { return decodeURIComponent(m[1]).trim(); } catch (e) { return m[1].trim(); }
+    }
+    if (raw.indexOf('=') >= 0) {
+      var pairs = raw.split('&');
+      for (var i = 0; i < pairs.length; i++) {
+        var kv = pairs[i].split('=');
+        if (kv.length === 2 && kv[1]) {
+          try { return decodeURIComponent(kv[1]).trim(); } catch (e) { return kv[1].trim(); }
+        }
+      }
+      return '';
+    }
+    return raw;
   })();
 
   // ---- 2. 取订阅原文 ----
