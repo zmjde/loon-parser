@@ -257,7 +257,14 @@
     var eq = t.indexOf('=');
     var scheme = t.indexOf('://');
 
-    if (scheme > 0 && (eq < 0 || scheme < eq)) {
+    // 先按 Loon 格式判断（= 右边是协议名），避免节点名里带 https:// 时被误判成 URI
+    if (eq > 0 && PROTOCOLS.test(t.slice(eq + 1).trim())) {
+      var nm = t.slice(0, eq).replace(/\s+$/, '');
+      if (nm.indexOf(PREFIX) === 0) return line;
+      return PREFIX + nm + t.slice(eq);
+    }
+
+    if (scheme > 0) {
       var hash = t.indexOf('#');
       if (hash >= 0) return t.slice(0, hash + 1) + PREFIX + t.slice(hash + 1);
       return t + '#' + PREFIX + 'Node';
