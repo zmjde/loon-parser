@@ -663,6 +663,116 @@
     return null;
   }
 
+  /* ==================== 6.6 Surge 格式 -> Loon ==================== */
+  /* Surge: 节点名 = ss, 1.2.3.4, 443, encrypt-method=aes-256-gcm, password=pw, obfs=http, ... */
+  var SURGE_LINE = /^[^=#\n]{1,64}?=\s*(ss|vmess|trojan|vless|http|https|socks5|hysteria2)\s*,\s*[^,\n]+,\s*\d+\s*,\s*[a-zA-Z][a-zA-Z0-9_-]*\s*=/im;
+
+  function isSurge(text) {
+    if (!SURGE_LINE.test(text)) return false;
+    // 仅当出现 Loon 完整协议名（大小写敏感）时才判为 Loon，避免 Surge 的 = http, 被误伤
+    var loonFull = /= *\s*(Shadowsocks|ShadowsocksR|VMess|VLESS|Trojan|Hysteria2|anytls|WireGuard),/;
+    return !loonFull.test(text);
+  }
+
+  function parseSurge(text) {
+    var out = [];
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var t = lines[i].trim();
+      if (!t || t.charAt(0) === '#' || t.charAt(0) === ';') continue;
+      var m = t.match(/^(.+?)\s*=\s*(ss|vmess|trojan|vless|http|https|socks5|hysteria2)\s*,\s*([^,\s]+)\s*,\s*(\d+)\s*(?:,\s*([\s\S]*))?$/i);
+      if (!m) continue;
+      var ln = null;
+      try { ln = surgeToLoon(unq(m[1]), m[2].toLowerCase(), m[3].trim(), m[4].trim(), parseKV(m[5] || '')); } catch (e) { ln = null; }
+      if (ln) out.push(ln);
+    }
+    return out;
+  }
+
+  function surgeToLoon(name, type, server, port, kv) {
+    if (!name || !server || !port) return null;
+    var common = [];
+    if (truthy(kv['udp-relay']) || truthy(kv.udp)) common.push('udp=true');
+    if (truthy(kv['skip-cert-verify'])) common.push('skip-cert-verify=true');
+    var sni = unq(kv.sni || kv['peer-name'] || kv['tls-sni'] || '');
+    var wsPath = unq(kv['ws-path'] || '');
+    var wsHost = unq(kv['ws-headers'] || '');
+    if (wsHost && wsHost.toLowerCase().indexOf('host:') === 0) wsHost = wsHost.slice(5).trim();
+    var tlsOn = truthy(kv.tls) || truthy(kv['over-tls']);
+
+    if (type === 'ss') {
+      var a = ['Shadowsocks', server, port, unq(kv['encrypt-method'] || kv.method || 'aes-128-gcm'),
+               '"' + unq(kv.password) + '"'];
+      var obfs = unq(kv.obfs || '');
+      if (obfs === 'http' || obfs === 'tls') {
+        a.push('obfs-name=' + obfs);
+        if (kv['obfs-host']) a.push('obfs-host=' + unq(kv['obfs-host']));
+        if (kv['obfs-uri']) a.push('obfs-uri=' + unq(kv['obfs-uri']));
+      }
+      return name + '=' + a.concat(common).join(',');
+    }
+
+    if (type === 'vmess') {
+      var c = ['VMess', server, port, unq(kv['encrypt-method'] || kv.method || 'auto'),
+               '"' + unq(kv.username || kv.password) + '"', 'alterId=' + (kv.alterId || 0)];
+      if (truthy(kv.ws)) {
+        c.push('transport=ws');
+        if (wsPath) c.push('path=' + wsPath);
+        if (wsHost) c.push('host=' + wsHost);
+      } else {
+        c.push('transport=tcp');
+      }
+      if (tlsOn) c.push('over-tls=true');
+      if (sni) c.push('sni=' + sni);
+      return name + '=' + c.concat(common).join(',');
+    }
+
+    if (type === 'vless') {
+      var d = ['VLESS', server, port, '"' + unq(kv.username || kv.password) + '"'];
+      if (truthy(kv.ws)) {
+        d.push('transport=ws');
+        if (wsPath) d.push('path=' + wsPath);
+        if (wsHost) d.push('host=' + wsHost);
+      } else {
+        d.push('transport=tcp');
+      }
+      if (kv.flow) d.push('flow=' + unq(kv.flow));
+      if (tlsOn) d.push('over-tls=true');
+      if (sni) d.push('sni=' + sni);
+      return name + '=' + d.concat(common).join(',');
+    }
+
+    if (type === 'trojan') {
+      var e;
+      if (truthy(kv.ws)) {
+        e = ['Trojan', server, port, '"' + unq(kv.password) + '"', 'transport=ws'];
+        if (wsPath) e.push('path=' + wsPath);
+        if (wsHost) e.push('host=' + wsHost);
+      } else {
+        e = ['Trojan', server, port, '"' + unq(kv.password) + '"', 'transport=tcp'];
+      }
+      if (sni) e.push('sni=' + sni);
+      return name + '=' + e.concat(common).join(',');
+    }
+
+    if (type === 'hysteria2') {
+      var f = ['Hysteria2', server, port, '"' + unq(kv.password || kv.auth) + '"'];
+      if (sni) f.push('sni=' + sni);
+      return name + '=' + f.concat(common).join(',');
+    }
+
+    if (type === 'http' || type === 'https' || type === 'socks5') {
+      var h = [type === 'socks5' ? 'socks5' : 'http', server, port];
+      if (kv.username) h.push(unq(kv.username));
+      if (kv.password) h.push('"' + unq(kv.password) + '"');
+      if (type === 'https' || tlsOn) h.push('over-tls=true');
+      if (sni) h.push('sni=' + sni);
+      return name + '=' + h.concat(common).join(',');
+    }
+
+    return null;
+  }
+
   /* ==================== 7. URI -> Loon ==================== */
   function parseQuery(qs) {
     var o = {};
@@ -887,6 +997,12 @@
       var q = null;
       try { q = parseQX(text); } catch (e) { q = null; }
       if (q && q.length) return dedupe(q.map(addPrefix)).join('\n');
+      return null;
+    }
+    if (isSurge(text)) {
+      var sg = null;
+      try { sg = parseSurge(text); } catch (e) { sg = null; }
+      if (sg && sg.length) return dedupe(sg.map(addPrefix)).join('\n');
       return null;
     }
     return null;
