@@ -940,8 +940,9 @@
     var eq = t.indexOf('=');
     if (eq > 0 && LOON_PROTOCOLS.test(t.slice(eq + 1).trim())) {
       var nm = t.slice(0, eq).replace(/\s+$/, '');
-      if (nm.indexOf(PREFIX) === 0) return line;
-      return PREFIX + nm + t.slice(eq);
+      if (nm.indexOf(PREFIX) !== 0) nm = PREFIX + nm;
+      // 规范化为 Loon [Proxy] 标准写法：名字 = 协议, ...
+      return nm + ' = ' + t.slice(eq + 1).trim();
     }
     var hash = t.indexOf('#');
     if (t.indexOf('://') > 0) {
@@ -1027,9 +1028,12 @@
     }
 
     var lines = parseLineList(text);
-    return lines.map(function (l) {
+    var res = lines.map(function (l) {
       try { return addPrefix(l); } catch (e) { return l; }
     }).join('\n');
+    // 保护：解析结果为空但原文有内容时，原样返回，避免整份订阅被丢弃
+    if (!res.trim() && text.trim()) return text;
+    return res;
   }
 
   var output = transform(INPUT);
