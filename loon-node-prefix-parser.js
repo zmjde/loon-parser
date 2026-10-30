@@ -26,6 +26,11 @@
     var m = raw.match(/(?:^|&)prefix=([^&]*)/i);
     if (m) { try { return decodeURIComponent(m[1]).trim(); } catch (e) { return m[1].trim(); } }
     if (raw.indexOf('=') >= 0) return '';
+    // 容错：参数框被误填成解析器地址/脚本路径时，忽略它，不当作前缀
+    if (/^(?:https?|file):\/\//i.test(raw)) return '';
+    if (/\.(?:js|lpx|plugin|list)$/i.test(raw)) return '';
+    // 前缀应当是短标记；超过 24 字符基本是误填
+    if (raw.length > 24) return '';
     return raw;
   })();
 
@@ -941,8 +946,8 @@
     if (eq > 0 && LOON_PROTOCOLS.test(t.slice(eq + 1).trim())) {
       var nm = t.slice(0, eq).replace(/\s+$/, '');
       if (nm.indexOf(PREFIX) !== 0) nm = PREFIX + nm;
-      // 规范化为 Loon [Proxy] 标准写法：名字 = 协议, ...
-      return nm + ' = ' + t.slice(eq + 1).trim();
+      // 原样保留等号两侧形态（机场给出的 '名=协议' 已被 Loon 接受，不要改动）
+      return nm + t.slice(eq);
     }
     var hash = t.indexOf('#');
     if (t.indexOf('://') > 0) {
