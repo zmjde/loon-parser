@@ -119,8 +119,11 @@
 
     var end = lines.length;
     for (var j = start + 1; j < lines.length; j++) {
-      if (!lines[j].trim()) continue;
-      if (!/^\s/.test(lines[j])) { end = j; break; }
+      var lj = lines[j];
+      if (!lj.trim()) continue;
+      if (/^\s*#/.test(lj)) continue;
+      // 顶格且不以 '-' 开头，且形如 'key:' → 才是下一个顶层段
+      if (!/^\s/.test(lj) && !/^\s*-/.test(lj)) { end = j; break; }
     }
 
     var items = [], cur = null, paths = [];
@@ -131,7 +134,7 @@
       var body = raw.trim();
 
       var mItem = body.match(/^-\s*(.*)$/);
-      if (mItem) {
+      if (mItem && indent <= 2) {
         if (cur) items.push(cur);
         cur = {}; paths = [];
         var rest = mItem[1];
