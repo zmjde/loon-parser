@@ -29,6 +29,8 @@
     // 容错：参数框被误填成解析器地址/脚本路径时，忽略它，不当作前缀
     if (/^(?:https?|file):\/\//i.test(raw)) return '';
     if (/\.(?:js|lpx|plugin|list)$/i.test(raw)) return '';
+    // 诊断开关不是前缀
+    if (/__debug__/i.test(raw)) return '';
     // 前缀应当是短标记；超过 24 字符基本是误填
     if (raw.length > 24) return '';
     return raw;
@@ -1066,11 +1068,19 @@
   }
 
   var output = INPUT;
+  var DBG = (typeof $argument !== 'undefined' && String($argument).indexOf('__debug__') >= 0);
   try {
     var r = transform(INPUT);
     if (typeof r === 'string' && r.trim()) output = r;
   } catch (e) {
-    output = INPUT;   // 解析异常时原样透传，避免整份订阅被判为无节点
+    output = INPUT;
+    if (DBG) output = '#ERR ' + e.message + '\n' + INPUT;
+  }
+  if (DBG) {
+    output = '#DBG len=' + INPUT.length
+      + ' rt=' + (typeof $resourceType !== 'undefined' ? $resourceType : 'n/a')
+      + ' lines=' + output.split('\n').length
+      + '\n' + output;
   }
   // Loon resource-parser 约定：$done(字符串)；部分版本也接受 {body: 字符串}
   try {
