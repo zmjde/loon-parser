@@ -941,6 +941,18 @@
   }
 
   /* ==================== 8. 前缀 ==================== */
+  // Loon 行格式：名字 = 协议, ...  —— 名字里不能出现 = ; 其余控制字符也清掉
+  function nameSafe(n) {
+    var s = String(n == null ? '' : n);
+    // 换行/制表/回车
+    s = s.replace(/[\r\n\t]/g, ' ');
+    // 等号会截断 名字/协议 的分界，是致命字符
+    s = s.replace(/=/g, '＝');
+    // 连续空格压缩
+    s = s.replace(/\s{2,}/g, ' ').trim();
+    return s || 'node';
+  }
+
   // Loon 订阅标准：协议名小写（官方 Hysteria2 除外）
   var PROTO_CANON = {
     'Shadowsocks': 'shadowsocks', 'ShadowsocksR': 'shadowsocksr',
@@ -964,12 +976,18 @@
     var s = line.replace(/\r$/, '');
     var t = s.trim();
     if (!t || t.charAt(0) === '#') return line;
+    // 用「= 协议名 ,」定位分界，避免节点名里的等号造成误切
+    var head = t.match(/^(.*?)=\s*([A-Za-z0-9]+)\s*,/);
+    if (head && LOON_PROTOCOLS.test(head[2] + ',')) {
+      var nm = nameSafe(head[1]);
+      if (PREFIX && nm.indexOf(PREFIX) !== 0) nm = PREFIX + nm;
+      return nm + '=' + t.slice(head[1].length + 1);
+    }
     var eq = t.indexOf('=');
     if (eq > 0 && LOON_PROTOCOLS.test(t.slice(eq + 1).trim())) {
-      var nm = t.slice(0, eq).replace(/\s+$/, '');
-      if (nm.indexOf(PREFIX) !== 0) nm = PREFIX + nm;
-      // 原样保留等号两侧形态（机场给出的 '名=协议' 已被 Loon 接受，不要改动）
-      return nm + t.slice(eq);
+      var nm2 = nameSafe(t.slice(0, eq).replace(/\s+$/, ''));
+      if (PREFIX && nm2.indexOf(PREFIX) !== 0) nm2 = PREFIX + nm2;
+      return nm2 + t.slice(eq);
     }
     var hash = t.indexOf('#');
     if (t.indexOf('://') > 0) {
