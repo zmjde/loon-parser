@@ -941,6 +941,25 @@
   }
 
   /* ==================== 8. 前缀 ==================== */
+  // Loon 订阅标准：协议名小写（官方 Hysteria2 除外）
+  var PROTO_CANON = {
+    'Shadowsocks': 'shadowsocks', 'ShadowsocksR': 'shadowsocksr',
+    'VMess': 'vmess', 'VLESS': 'vless', 'Trojan': 'trojan',
+    'Hysteria2': 'Hysteria2', 'Hysteria': 'hysteria',
+    'WireGuard': 'wireguard', 'http': 'http', 'https': 'https'
+  };
+  function canonProto(line) {
+    var eq = line.indexOf('=');
+    if (eq < 0) return line;
+    var head = line.slice(0, eq), tail = line.slice(eq + 1);
+    var m = tail.match(/^(\s*)([A-Za-z0-9]+)(,|\s*$)/);
+    if (!m) return line;
+    var p0 = m[2];
+    var rep = PROTO_CANON[p0] || (p0 === p0.toUpperCase() ? p0.toLowerCase() : p0);
+    if (rep === p0) return line;
+    return head + '=' + m[1] + rep + tail.slice(m[1].length + p0.length);
+  }
+
   function addPrefix(line) {
     var s = line.replace(/\r$/, '');
     var t = s.trim();
@@ -992,26 +1011,26 @@
           if (isSingBox(obj)) res = parseSingBox(obj);
           else if (isV2ray(obj)) res = parseV2ray(obj);
         } catch (e) { res = null; }
-        if (res && res.length) return dedupe(res.map(addPrefix)).join('\n');
+        if (res && res.length) return dedupe(res.map(function(l){return canonProto(addPrefix(l));})).join('\n');
       }
       return null;
     }
     if (/^\s*proxies\s*:/m.test(text)) {
       var y = null;
       try { y = parseYaml(text); } catch (e) { y = null; }
-      if (y && y.length) return dedupe(y.map(addPrefix)).join('\n');
+      if (y && y.length) return dedupe(y.map(function(l){return canonProto(addPrefix(l));})).join('\n');
       return null;
     }
     if (isQX(text)) {
       var q = null;
       try { q = parseQX(text); } catch (e) { q = null; }
-      if (q && q.length) return dedupe(q.map(addPrefix)).join('\n');
+      if (q && q.length) return dedupe(q.map(function(l){return canonProto(addPrefix(l));})).join('\n');
       return null;
     }
     if (isSurge(text)) {
       var sg = null;
       try { sg = parseSurge(text); } catch (e) { sg = null; }
-      if (sg && sg.length) return dedupe(sg.map(addPrefix)).join('\n');
+      if (sg && sg.length) return dedupe(sg.map(function(l){return canonProto(addPrefix(l));})).join('\n');
       return null;
     }
     return null;
@@ -1037,7 +1056,7 @@
 
     var lines = parseLineList(text);
     var res = lines.map(function (l) {
-      try { return addPrefix(l); } catch (e) { return l; }
+      try { return canonProto(addPrefix(l)); } catch (e) { return l; }
     }).join('\n');
     // 保护：解析结果为空但原文有内容时，原样返回，避免整份订阅被丢弃
     if (!res.trim() && text.trim()) return text;
